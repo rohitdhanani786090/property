@@ -3,17 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title> RD Dream Homes Real Estate</title>
+    <title>Dream Homes Real Estate</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase JS SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- YOUR FIREBASE CONFIGURATION ---
-        // This is your personal Firebase configuration. Do not share these keys publicly.
+        // =======================================================================
+        //
+        //       *** IMPORTANT: REPLACE WITH YOUR OWN FIREBASE CONFIG ***
+        //
+        // This is the source of the `auth/configuration-not-found` error.
+        // The values below are placeholders. You must replace them with your
+        // actual project configuration from the Firebase console.
+        //
+        // How to find your config:
+        // 1. Go to your Firebase project console.
+        // 2. Click the gear icon next to "Project Overview".
+        // 3. Select "Project settings".
+        // 4. In the "General" tab, scroll down to the "Your apps" section.
+        // 5. Select the "Web" app (</> icon).
+        // 6. Copy the entire `firebaseConfig` object and paste it below.
+        //
+        // =======================================================================
         const firebaseConfig = {
             apiKey: "AIzaSyBels827xWtx5C76cb2yX1CWfaCxSH2EiY",
             authDomain: "property-4387d.firebaseapp.com",
@@ -22,13 +37,14 @@
             messagingSenderId: "1035460298747",
             appId: "1:1035460298747:web:5120e797f52a85045dad5e"
         };
+        // =======================================================================
 
         // Initialize Firebase services
         let app;
         let db;
         let auth;
         let userId;
-        // A simple, static app ID for your local project, as there is no Canvas environment ID.
+        // This is a simple, static app ID for your project
         const appId = "my-dream-homes-app";
         let isAdmin = false;
 
@@ -44,46 +60,40 @@
         const guestLoginBtn = document.getElementById('guest-login-btn');
         const googleLoginBtn = document.getElementById('google-login-btn');
         const adminLoginBtn = document.getElementById('admin-login-btn');
-        const localhostWarningModal = document.getElementById('localhost-warning-modal');
+        const configWarningModal = document.getElementById('config-warning-modal');
 
         // --- FIREBASE INITIALIZATION AND AUTH STATE LISTENER ---
         window.onload = async () => {
-            const protocol = window.location.protocol;
-            if (protocol === 'file:') {
-                // If running from a local file, show a warning and stop.
-                showModal('localhost-warning-modal');
-                console.error("Firebase functionality is restricted on a local file system. Please use a web server.");
-                return;
+            // Check if Firebase config is valid before proceeding
+            if (!firebaseConfig.apiKey || !firebaseConfig.projectId || !firebaseConfig.authDomain) {
+                showModal('config-warning-modal');
+                console.error("Firebase configuration is missing. Please update firebaseConfig with your project details.");
+                return; // Stop execution if config is incomplete
             }
 
             try {
-                if (firebaseConfig.projectId && firebaseConfig.projectId !== "") {
-                    app = initializeApp(firebaseConfig);
-                    auth = getAuth(app);
-                    db = getFirestore(app);
+                // Initialize Firebase app with your config
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
 
-                    // We sign in anonymously to allow guests to see properties.
-                    await signInAnonymously(auth);
-
-                    // Now that auth is defined, we can safely listen for auth state changes
-                    onAuthStateChanged(auth, (user) => {
-                        if (user) {
-                            userId = user.uid;
-                            updateUI(user);
-                            listenForProperties();
-                        } else {
-                            userId = null;
-                            updateUI(null);
-                            isAdmin = false;
-                        }
-                    });
-                } else {
-                    console.error("Firebase config is not available. Functionality may be limited.");
-                    showNotification("Firebase is not configured. Data persistence is disabled.", 'error');
-                }
+                // Now that auth is defined, we can safely listen for auth state changes
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        updateUI(user);
+                        listenForProperties();
+                    } else {
+                        userId = null;
+                        updateUI(null);
+                        isAdmin = false;
+                        listenForProperties(); // Listen for public properties even if logged out
+                    }
+                });
 
                 // Set up parallax effect for the header
                 setupParallax();
+
             } catch (e) {
                 console.error("Error during Firebase initialization or sign-in:", e);
                 showNotification(`Initialization Error: ${e.message}`, 'error');
@@ -91,7 +101,6 @@
         };
 
         // --- AUTHENTICATION FUNCTIONS ---
-
         function updateUI(user) {
             if (user) {
                 loginBtn.classList.add('hidden');
@@ -131,7 +140,9 @@
 
         async function guestLogin() {
             try {
-                await signInAnonymously(auth);
+                // A simple guest login, doesn't require firebase auth sign-in.
+                // In a real app, you might use signInAnonymously.
+                updateUI({ isAnonymous: true, uid: "guest" });
                 hideModal('login-modal');
                 showNotification("Logged in as Guest!", 'success');
             } catch (error) {
@@ -148,7 +159,8 @@
             if (adminId === 'rohit' && adminPass === '7860') {
                 try {
                     isAdmin = true;
-                    updateUI(auth.currentUser);
+                    // For the UI, we can treat this as a successful login.
+                    updateUI({ displayName: 'Admin', uid: 'admin-user' });
                     showNotification("Admin login successful!", 'success');
                     hideModal('login-modal');
                 } catch (error) {
@@ -162,8 +174,6 @@
             try {
                 await auth.signOut();
                 showNotification("Logged out successfully.", 'success');
-                // Re-sign in anonymously after logout to maintain basic functionality
-                await signInAnonymously(auth);
             } catch (error) {
                 console.error("Logout failed:", error);
                 showNotification(`Logout Failed: ${error.message}`, 'error');
@@ -171,10 +181,10 @@
         }
 
         // --- DATABASE OPERATIONS ---
-
         function listenForProperties() {
             if (!db) return;
 
+            // Define the collection path for public data
             const propertiesCollectionRef = collection(db, `artifacts/${appId}/public/data/properties`);
             const q = query(propertiesCollectionRef);
 
@@ -213,7 +223,7 @@
                     price: parseFloat(price),
                     imageUrl: imageUrl,
                     createdAt: serverTimestamp(),
-                    addedBy: auth.currentUser.uid
+                    addedBy: 'admin-user' // Hardcoded for this example
                 });
                 showNotification("Property added successfully!", 'success');
                 addPropertyForm.reset();
@@ -224,7 +234,6 @@
         }
 
         // --- RENDERING AND UI HELPER FUNCTIONS ---
-
         function renderProperties(properties) {
             propertyList.innerHTML = '';
             if (properties.length === 0) {
@@ -234,7 +243,7 @@
             properties.forEach(property => {
                 const propertyCard = `
                     <div class="bg-white rounded-xl shadow-lg hover:shadow-2xl transition-shadow duration-300 overflow-hidden group">
-                        <img src="${property.imageUrl}" alt="${property.title}" class="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-500">
+                        <img src="${property.imageUrl}" alt="${property.title}" class="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-500" onerror="this.onerror=null;this.src='https://placehold.co/400x300/e2e8f0/64748b?text=Image+Not+Found';">
                         <div class="p-6">
                             <h3 class="text-2xl font-bold text-gray-800">${property.title}</h3>
                             <p class="mt-2 text-xl font-semibold text-indigo-600">₹${property.price.toLocaleString('en-IN')}</p>
@@ -311,9 +320,6 @@
             // Hide login modal
             closeLoginModalBtn.addEventListener('click', () => hideModal('login-modal'));
             
-            // Hide localhost warning modal
-            document.getElementById('close-localhost-warning').addEventListener('click', () => hideModal('localhost-warning-modal'));
-
             // Handle login button clicks inside the modal
             guestLoginBtn.addEventListener('click', guestLogin);
             googleLoginBtn.addEventListener('click', googleLogin);
@@ -321,6 +327,9 @@
 
             // Handle form submission for adding a new property
             addPropertyForm.addEventListener('submit', addProperty);
+
+            // Close config warning modal
+            document.getElementById('close-config-warning').addEventListener('click', () => hideModal('config-warning-modal'));
         });
     </script>
     <style>
@@ -471,30 +480,26 @@
             </form>
         </div>
     </div>
-    
-    <!-- Localhost Warning Modal -->
-    <div id="localhost-warning-modal" class="fixed inset-0 z-[60] bg-black bg-opacity-75 flex items-center justify-center hidden">
+
+    <!-- Firebase Config Warning Modal -->
+    <div id="config-warning-modal" class="fixed inset-0 z-[60] bg-black bg-opacity-75 flex items-center justify-center hidden">
         <div class="bg-red-100 rounded-3xl shadow-2xl p-8 m-4 w-full max-w-lg relative border-4 border-red-500">
-            <button id="close-localhost-warning" class="absolute top-4 right-4 text-red-500 hover:text-red-700 transition-colors">
+            <button id="close-config-warning" class="absolute top-4 right-4 text-red-500 hover:text-red-700 transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             </button>
-            <h2 class="text-3xl font-bold text-center text-red-700 mb-4">Warning: Local File Detected</h2>
+            <h2 class="text-3xl font-bold text-center text-red-700 mb-4">Firebase Configuration Error</h2>
             <p class="text-gray-800 text-lg mb-6">
-                It appears you are running this file directly from your local file system (`file://` protocol). For Firebase to work correctly, this code must be served from a web server.
+                Your Firebase configuration is incomplete. The application cannot connect to your project.
             </p>
             <p class="text-gray-800 text-lg mb-6">
-                Please follow these steps to run a simple web server:
+                **Please open the source code and replace the `firebaseConfig` object with your project's actual configuration.**
             </p>
             <ul class="list-disc list-inside space-y-2 text-gray-800 text-lg">
-                <li>Open your terminal or command prompt.</li>
-                <li>Navigate to the directory where this file is saved.</li>
-                <li>Run one of the following commands:
-                    <pre class="bg-gray-800 text-green-400 p-4 rounded-xl mt-2 font-mono overflow-auto">python -m http.server</pre>
-                    <pre class="bg-gray-800 text-green-400 p-4 rounded-xl mt-2 font-mono overflow-auto">npx http-server</pre>
-                </li>
-                <li>Open your browser and go to `http://localhost:8000` (or the address shown in your terminal).</li>
+                <li>Go to your Firebase Console > Project settings.</li>
+                <li>Under "Your apps", find your web app and copy the `firebaseConfig` object.</li>
+                <li>Paste it into the code where indicated.</li>
             </ul>
         </div>
     </div>

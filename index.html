@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dream Homes Real Estate</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase JS SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- IMPORTANT: FOR LOCAL USE ONLY ---
+        // If you are running this file locally, you MUST create your own Firebase project
+        // and paste your configuration below. Otherwise, the app will not work.
+        // const myLocalFirebaseConfig = {
+        //     apiKey: "YOUR_API_KEY",
+        //     authDomain: "YOUR_AUTH_DOMAIN",
+        //     projectId: "YOUR_PROJECT_ID",
+        //     storageBucket: "YOUR_STORAGE_BUCKET",
+        //     messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+        //     appId: "YOUR_APP_ID"
+        // };
+
+        // Global variables for Firebase configuration.
+        // The __firebase_config and __initial_auth_token variables are provided by this environment.
+        // There is no need to manually add API keys when running in this Canvas.
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // Initialize Firebase services
+        let app;
+        let db;
+        let auth;
+        let userId;
+
+        // UI element references
+        const loginModal = document.getElementById('login-modal');
+        const adminPanel = document.getElementById('admin-panel');
+        const propertyList = document.getElementById('property-list');
+        const loginStatus = document.getElementById('login-status');
+        const addPropertyForm = document.getElementById('add-property-form');
+        const loginBtn = document.getElementById('login-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        const closeLoginModalBtn = document.getElementById('close-login-modal');
+        const guestLoginBtn = document.getElementById('guest-login-btn');
+        const googleLoginBtn = document.getElementById('google-login-btn');
+        const adminLoginBtn = document.getElementById('admin-login-btn');
+
+        // This flag will be used to determine if the admin is logged in
+        let isAdmin = false;
+
+        // --- FIREBASE INITIALIZATION AND AUTH STATE LISTENER ---
+        window.onload = async () => {
+            try {
+                // Check if the environment provides a config, or if a local one is available.
+                // Replace `firebaseConfig` with `myLocalFirebaseConfig` if running locally.
+                if (Object.keys(firebaseConfig).length > 0) {
+                    app = initializeApp(firebaseConfig);
+                    auth = getAuth(app);
+                    db = getFirestore(app);
+
+                    // Sign in with the custom auth token provided by the environment
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+
+                    // Now that auth is defined, we can safely listen for auth state changes
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            userId = user.uid;
+                            updateUI(user);
+                            listenForProperties();
+                        } else {
+                            userId = null;
+                            updateUI(null);
+                            isAdmin = false;
+                        }
+                    });
+
+                } else {
+                    console.error("Firebase config is not available. Functionality may be limited.");
+                    showNotification("Firebase is not configured. Data persistence is disabled.", 'error');
+                }
+
+                // Set up parallax effect for the header
+                setupParallax();
+            } catch (e) {
+                console.error("Error during Firebase initialization or sign-in:", e);
+                showNotification(`Initialization Error: ${e.message}`, 'error');
+            }
+        };
+
+        // --- AUTHENTICATION FUNCTIONS ---
+
+        function updateUI(user) {
+            if (user) {
+                loginBtn.classList.add('hidden');
+                logoutBtn.classList.remove('hidden');
+                loginStatus.classList.remove('hidden');
+
+                if (isAdmin) {
+                    loginStatus.innerHTML = `Logged in as: <span class="font-bold text-teal-400">Admin</span>`;
+                    adminPanel.classList.remove('hidden');
+                } else if (user.isAnonymous) {
+                    loginStatus.innerHTML = `Logged in as: <span class="font-bold">Guest</span>`;
+                    adminPanel.classList.add('hidden');
+                } else {
+                    loginStatus.innerHTML = `Logged in as: <span class="font-bold">Google User</span>`;
+                    adminPanel.classList.add('hidden');
+                }
+            } else {
+                loginBtn.classList.remove('hidden');
+                logoutBtn.classList.add('hidden');
+                loginStatus.classList.add('hidden');
+                adminPanel.classList.add('hidden');
+                isAdmin = false;
+            }
+        }
+
+        async function googleLogin() {
+            try {
+                const provider = new GoogleAuthProvider();
+                await signInWithPopup(auth, provider);
+                hideModal('login-modal');
+                showNotification("Successfully logged in with Google!", 'success');
+            } catch (error) {
+                console.error("Google sign-in failed:", error);
+                showNotification(`Google Sign-In Failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function guestLogin() {
+            try {
+                await signInAnonymously(auth);
+                hideModal('login-modal');
+                showNotification("Logged in as Guest!", 'success');
+            } catch (error) {
+                console.error("Guest sign-in failed:", error);
+                showNotification(`Guest Sign-In Failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function adminLogin() {
+            const adminId = document.getElementById('admin-id').value;
+            const adminPass = document.getElementById('admin-pass').value;
+
+            // Simple client-side admin check for this example.
+            if (adminId === 'rohit' && adminPass === '7860') {
+                try {
+                    // The previous implementation could cause a race condition with the onAuthStateChanged listener
+                    // as it would sign out and then sign in again. A simpler, more reliable approach
+                    // for a client-side check is to directly set the isAdmin flag and update the UI.
+                    isAdmin = true;
+                    updateUI(auth.currentUser);
+                    showNotification("Admin login successful!", 'success');
+                    hideModal('login-modal');
+                } catch (error) {
+                    console.error("Admin sign-in failed:", error);
+                    showNotification(`Admin Login Failed: ${error.message}`, 'error');
+                }
+            } else {
+                showNotification("Invalid Admin ID or Password.", 'error');
+            }
+        }
+
+        async function handleLogout() {
+            try {
+                await auth.signOut();
+                showNotification("Logged out successfully.", 'success');
+                // Re-sign in anonymously after logout to maintain basic functionality
+                await signInAnonymously(auth);
+            } catch (error) {
+                console.error("Logout failed:", error);
+                showNotification(`Logout Failed: ${error.message}`, 'error');
+            }
+        }
+
+        // --- DATABASE OPERATIONS ---
+
+        function listenForProperties() {
+            if (!db) return;
+
+            const propertiesCollectionRef = collection(db, `artifacts/${appId}/public/data/properties`);
+            const q = query(propertiesCollectionRef);
+
+            onSnapshot(q, (querySnapshot) => {
+                const properties = [];
+                querySnapshot.forEach((doc) => {
+                    properties.push({ id: doc.id, ...doc.data() });
+                });
+                renderProperties(properties);
+            }, (error) => {
+                console.error("Error listening to properties:", error);
+                showNotification(`Error fetching properties: ${error.message}`, 'error');
+            });
+        }
+
+        async function addProperty(event) {
+            event.preventDefault();
+            const title = document.getElementById('prop-title').value;
+            const description = document.getElementById('prop-desc').value;
+            const price = document.getElementById('prop-price').value;
+            const imageUrl = document.getElementById('prop-image').value;
+            
+            if (!title || !description || !price || !imageUrl) {
+                showNotification("Please fill in all fields.", 'error');
+                return;
+            }
+            if (!db || !isAdmin) {
+                showNotification("You must be logged in as an Admin to add properties.", 'error');
+                return;
+            }
+
+            try {
+                await addDoc(collection(db, `artifacts/${appId}/public/data/properties`), {
+                    title: title,
+                    description: description,
+                    price: parseFloat(price),
+                    imageUrl: imageUrl,
+                    createdAt: serverTimestamp(),
+                    addedBy: auth.currentUser.uid
+                });
+                showNotification("Property added successfully!", 'success');
+                addPropertyForm.reset();
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                showNotification(`Error adding property: ${e.message}`, 'error');
+            }
+        }
+
+        // --- RENDERING AND UI HELPER FUNCTIONS ---
+
+        function renderProperties(properties) {
+            propertyList.innerHTML = '';
+            if (properties.length === 0) {
+                propertyList.innerHTML = `<p class="text-gray-500 col-span-full text-center">No properties found. Add some as an Admin!</p>`;
+                return;
+            }
+            properties.forEach(property => {
+                const propertyCard = `
+                    <div class="bg-white rounded-xl shadow-lg hover:shadow-2xl transition-shadow duration-300 overflow-hidden group">
+                        <img src="${property.imageUrl}" alt="${property.title}" class="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-500">
+                        <div class="p-6">
+                            <h3 class="text-2xl font-bold text-gray-800">${property.title}</h3>
+                            <p class="mt-2 text-xl font-semibold text-indigo-600">₹${property.price.toLocaleString('en-IN')}</p>
+                            <p class="mt-4 text-gray-600">${property.description}</p>
+                            <button class="mt-6 w-full py-3 px-6 bg-indigo-600 text-white font-bold rounded-lg shadow-md hover:bg-indigo-700 transition-colors duration-300">
+                                View Details
+                            </button>
+                        </div>
+                    </div>
+                `;
+                propertyList.insertAdjacentHTML('beforeend', propertyCard);
+            });
+        }
+
+        function showNotification(message, type) {
+            const notification = document.getElementById('notification');
+            const notificationText = document.getElementById('notification-text');
+            notificationText.textContent = message;
+            notification.className = 'fixed top-4 right-4 z-[100] p-4 rounded-lg shadow-xl transition-transform duration-300 transform';
+
+            if (type === 'success') {
+                notification.classList.add('bg-green-500', 'text-white');
+            } else if (type === 'error') {
+                notification.classList.add('bg-red-500', 'text-white');
+            }
+
+            notification.classList.remove('translate-x-full');
+            setTimeout(() => {
+                notification.classList.add('translate-x-full');
+            }, 5000);
+        }
+        
+        function showModal(id) {
+            const modal = document.getElementById(id);
+            modal.classList.remove('hidden');
+            document.body.classList.add('overflow-hidden');
+        }
+
+        function hideModal(id) {
+            const modal = document.getElementById(id);
+            modal.classList.add('hidden');
+            document.body.classList.remove('overflow-hidden');
+        }
+
+        function setupParallax() {
+            const heroSection = document.getElementById('hero-section');
+            const heroText = document.getElementById('hero-text');
+            const heroButton = document.getElementById('hero-button');
+
+            window.addEventListener('scroll', () => {
+                const scrollPosition = window.scrollY;
+                heroSection.style.backgroundPositionY = `${-scrollPosition * 0.5}px`;
+                
+                const opacity = 1 - scrollPosition / 500;
+                const translateY = scrollPosition * 0.5;
+
+                if (opacity >= 0) {
+                    heroText.style.opacity = opacity;
+                    heroText.style.transform = `translateY(${translateY}px)`;
+                    heroButton.style.opacity = opacity;
+                    heroButton.style.transform = `translateY(${translateY}px)`;
+                }
+            });
+        }
+
+        // --- EVENT LISTENERS FOR INTERACTIVITY ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // Show login modal
+            loginBtn.addEventListener('click', () => showModal('login-modal'));
+            
+            // Handle logout
+            logoutBtn.addEventListener('click', handleLogout);
+
+            // Hide login modal
+            closeLoginModalBtn.addEventListener('click', () => hideModal('login-modal'));
+
+            // Handle login button clicks inside the modal
+            guestLoginBtn.addEventListener('click', guestLogin);
+            googleLoginBtn.addEventListener('click', googleLogin);
+            adminLoginBtn.addEventListener('click', adminLogin);
+
+            // Handle form submission for adding a new property
+            addPropertyForm.addEventListener('submit', addProperty);
+        });
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fc;
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #e2e8f0;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+        .parallax-header {
+            background-image: url('https://images.unsplash.com/photo-1560518883-ff5158679ff9?q=80&w=2940&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body class="text-gray-900">
+
+    <!-- Notification Message Box -->
+    <div id="notification" class="fixed top-4 right-4 z-[100] p-4 rounded-lg shadow-xl transform translate-x-full transition-transform duration-300">
+        <span id="notification-text"></span>
+    </div>
+
+    <!-- Header Section with Parallax Effect -->
+    <header id="hero-section" class="parallax-header relative flex items-center justify-center text-white text-center">
+        <div class="absolute inset-0 bg-black opacity-50"></div>
+        <div class="relative z-10 p-8 md:p-12">
+            <h1 id="hero-text" class="text-5xl sm:text-6xl md:text-8xl font-black mb-6 animate-fade-in animate-slide-in">
+                Find Your Dream Home
+            </h1>
+            <p class="text-lg md:text-2xl font-light max-w-2xl mx-auto mb-10 opacity-0 animate-fade-in-2s">
+                Explore the most beautiful properties from around the world.
+            </p>
+            <button id="hero-button" class="px-8 py-4 text-xl font-bold bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 transition-all duration-300 transform hover:scale-105 opacity-0 animate-fade-in-3s">
+                Start Exploring
+            </button>
+        </div>
+        <nav class="absolute top-0 left-0 right-0 p-4 bg-transparent backdrop-blur-md z-20 flex justify-between items-center">
+            <div class="text-3xl font-bold text-white">Dream Homes</div>
+            <div class="flex items-center space-x-4">
+                <span id="login-status" class="hidden text-white font-medium text-lg"></span>
+                <button id="login-btn" class="px-6 py-2 bg-white text-indigo-600 font-bold rounded-full shadow-lg hover:bg-gray-100 transition-colors">
+                    Login
+                </button>
+                <button id="logout-btn" class="hidden px-6 py-2 bg-red-500 text-white font-bold rounded-full shadow-lg hover:bg-red-600 transition-colors">
+                    Logout
+                </button>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Main Content Section -->
+    <main class="container mx-auto p-4 md:p-8 min-h-screen">
+        <!-- Admin Panel (visible only to Admin) -->
+        <section id="admin-panel" class="hidden my-12 bg-white p-8 rounded-2xl shadow-xl border border-gray-200">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6">Add New Property</h2>
+            <form id="add-property-form" class="space-y-6">
+                <div>
+                    <label for="prop-title" class="block text-sm font-medium text-gray-700">Property Title</label>
+                    <input type="text" id="prop-title" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label for="prop-desc" class="block text-sm font-medium text-gray-700">Description</label>
+                    <textarea id="prop-desc" rows="4" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 focus:border-indigo-500 focus:ring-indigo-500"></textarea>
+                </div>
+                <div>
+                    <label for="prop-price" class="block text-sm font-medium text-gray-700">Price (in INR)</label>
+                    <input type="number" id="prop-price" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label for="prop-image" class="block text-sm font-medium text-gray-700">Image URL</label>
+                    <input type="url" id="prop-image" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
+                <button type="submit" class="w-full py-3 px-6 bg-green-500 text-white font-bold rounded-lg shadow-md hover:bg-green-600 transition-colors">
+                    Add Property
+                </button>
+            </form>
+        </section>
+
+        <!-- Property Listings Section -->
+        <section class="my-12">
+            <h2 class="text-3xl font-bold text-gray-800 text-center mb-10">Our Latest Properties</h2>
+            <div id="property-list" class="grid gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                <p class="text-center text-gray-500 col-span-full">Loading properties...</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Login Modal -->
+    <div id="login-modal" class="fixed inset-0 z-[60] bg-black bg-opacity-75 flex items-center justify-center hidden">
+        <div class="bg-white rounded-3xl shadow-2xl p-8 m-4 w-full max-w-md relative">
+            <button id="close-login-modal" class="absolute top-4 right-4 text-gray-400 hover:text-gray-700 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <h2 class="text-3xl font-bold text-center text-gray-800 mb-8">Login to Continue</h2>
+            
+            <div class="space-y-4">
+                <button id="guest-login-btn" class="w-full py-4 px-6 rounded-xl bg-gray-200 text-gray-800 font-bold hover:bg-gray-300 transition-colors">
+                    Continue as Guest
+                </button>
+
+                <button id="google-login-btn" class="w-full py-4 px-6 rounded-xl bg-blue-500 text-white font-bold flex items-center justify-center space-x-2 hover:bg-blue-600 transition-colors">
+                    <svg class="w-6 h-6" viewBox="0 0 48 48">
+                        <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.607 5.09-6.31 8.544-11.303 8.544-6.697 0-12.127-5.385-12.127-12s5.43-12 12.127-12c3.085 0 5.867 1.157 8.04 3.03l5.657-5.657C34.046 6.84 29.113 4 24 4 12.954 4 4 12.954 4 24s8.954 20 20 20 20-8.954 20-20c0-1.34-0.138-2.658-0.389-3.917z" />
+                        <path fill="#FF3D00" d="M6.306 14.691L11.861 20.246c-1.782 2.666-2.861 5.926-2.861 9.754 0 3.738 1.047 7.24 2.809 10.155l-5.753 4.419C6.671 41.528 4 37.16 4 24c0-4.636 1.099-8.986 3.046-12.253z" />
+                        <path fill="#4CAF50" d="M24 44c5.166 0 9.957-1.777 13.255-4.707l-5.657-5.657C29.243 35.803 26.792 36 24 36c-5.228 0-9.626-3.328-11.238-7.925l-5.657 4.419C7.142 39.811 15.008 44 24 44z" />
+                        <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-0.792 2.237-2.231 4.167-4.08 5.567l5.657 5.657C36.917 37.124 40.548 34.072 42 30.297V24h1.611c0-1.34-.138-2.658-0.389-3.917z" />
+                    </svg>
+                    <span>Login with Google</span>
+                </button>
+            </div>
+            
+            <div class="relative flex py-5 items-center">
+                <div class="flex-grow border-t border-gray-400"></div>
+                <span class="flex-shrink mx-4 text-gray-400">Or Admin Login</span>
+                <div class="flex-grow border-t border-gray-400"></div>
+            </div>
+
+            <!-- Admin Login Form -->
+            <form id="admin-login-form" class="space-y-4">
+                <div>
+                    <label for="admin-id" class="sr-only">Admin ID</label>
+                    <input type="text" id="admin-id" placeholder="Admin ID (rohit)" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label for="admin-pass" class="sr-only">Password</label>
+                    <input type="password" id="admin-pass" placeholder="Password (7860)" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <button type="button" id="admin-login-btn" class="w-full py-4 px-6 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors">
+                    Admin Login
+                </button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

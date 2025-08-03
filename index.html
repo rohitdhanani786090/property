@@ -3,39 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dream Homes Real Estate</title>
+    <title> RD Dream Homes Real Estate</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase JS SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- IMPORTANT: FOR LOCAL USE ONLY ---
-        // If you are running this file locally, you MUST create your own Firebase project
-        // and paste your configuration below. Otherwise, the app will not work.
-        // const myLocalFirebaseConfig = {
-        //     apiKey: "YOUR_API_KEY",
-        //     authDomain: "YOUR_AUTH_DOMAIN",
-        //     projectId: "YOUR_PROJECT_ID",
-        //     storageBucket: "YOUR_STORAGE_BUCKET",
-        //     messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-        //     appId: "YOUR_APP_ID"
-        // };
-
-        // Global variables for Firebase configuration.
-        // The __firebase_config and __initial_auth_token variables are provided by this environment.
-        // There is no need to manually add API keys when running in this Canvas.
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // --- YOUR FIREBASE CONFIGURATION ---
+        // This is your personal Firebase configuration. Do not share these keys publicly.
+        const firebaseConfig = {
+            apiKey: "AIzaSyBels827xWtx5C76cb2yX1CWfaCxSH2EiY",
+            authDomain: "property-4387d.firebaseapp.com",
+            projectId: "property-4387d",
+            storageBucket: "property-4387d.firebasestorage.app",
+            messagingSenderId: "1035460298747",
+            appId: "1:1035460298747:web:5120e797f52a85045dad5e"
+        };
 
         // Initialize Firebase services
         let app;
         let db;
         let auth;
         let userId;
+        // A simple, static app ID for your local project, as there is no Canvas environment ID.
+        const appId = "my-dream-homes-app";
+        let isAdmin = false;
 
         // UI element references
         const loginModal = document.getElementById('login-modal');
@@ -49,26 +44,26 @@
         const guestLoginBtn = document.getElementById('guest-login-btn');
         const googleLoginBtn = document.getElementById('google-login-btn');
         const adminLoginBtn = document.getElementById('admin-login-btn');
-
-        // This flag will be used to determine if the admin is logged in
-        let isAdmin = false;
+        const localhostWarningModal = document.getElementById('localhost-warning-modal');
 
         // --- FIREBASE INITIALIZATION AND AUTH STATE LISTENER ---
         window.onload = async () => {
+            const protocol = window.location.protocol;
+            if (protocol === 'file:') {
+                // If running from a local file, show a warning and stop.
+                showModal('localhost-warning-modal');
+                console.error("Firebase functionality is restricted on a local file system. Please use a web server.");
+                return;
+            }
+
             try {
-                // Check if the environment provides a config, or if a local one is available.
-                // Replace `firebaseConfig` with `myLocalFirebaseConfig` if running locally.
-                if (Object.keys(firebaseConfig).length > 0) {
+                if (firebaseConfig.projectId && firebaseConfig.projectId !== "") {
                     app = initializeApp(firebaseConfig);
                     auth = getAuth(app);
                     db = getFirestore(app);
 
-                    // Sign in with the custom auth token provided by the environment
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
+                    // We sign in anonymously to allow guests to see properties.
+                    await signInAnonymously(auth);
 
                     // Now that auth is defined, we can safely listen for auth state changes
                     onAuthStateChanged(auth, (user) => {
@@ -82,7 +77,6 @@
                             isAdmin = false;
                         }
                     });
-
                 } else {
                     console.error("Firebase config is not available. Functionality may be limited.");
                     showNotification("Firebase is not configured. Data persistence is disabled.", 'error');
@@ -153,16 +147,11 @@
             // Simple client-side admin check for this example.
             if (adminId === 'rohit' && adminPass === '7860') {
                 try {
-                    // The previous implementation could cause a race condition with the onAuthStateChanged listener
-                    // as it would sign out and then sign in again. A simpler, more reliable approach
-                    // for a client-side check is to directly set the isAdmin flag and update the UI.
                     isAdmin = true;
                     updateUI(auth.currentUser);
                     showNotification("Admin login successful!", 'success');
                     hideModal('login-modal');
                 } catch (error) {
-                    console.error("Admin sign-in failed:", error);
-                    showNotification(`Admin Login Failed: ${error.message}`, 'error');
                 }
             } else {
                 showNotification("Invalid Admin ID or Password.", 'error');
@@ -321,6 +310,9 @@
 
             // Hide login modal
             closeLoginModalBtn.addEventListener('click', () => hideModal('login-modal'));
+            
+            // Hide localhost warning modal
+            document.getElementById('close-localhost-warning').addEventListener('click', () => hideModal('localhost-warning-modal'));
 
             // Handle login button clicks inside the modal
             guestLoginBtn.addEventListener('click', guestLogin);
@@ -477,6 +469,33 @@
                     Admin Login
                 </button>
             </form>
+        </div>
+    </div>
+    
+    <!-- Localhost Warning Modal -->
+    <div id="localhost-warning-modal" class="fixed inset-0 z-[60] bg-black bg-opacity-75 flex items-center justify-center hidden">
+        <div class="bg-red-100 rounded-3xl shadow-2xl p-8 m-4 w-full max-w-lg relative border-4 border-red-500">
+            <button id="close-localhost-warning" class="absolute top-4 right-4 text-red-500 hover:text-red-700 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <h2 class="text-3xl font-bold text-center text-red-700 mb-4">Warning: Local File Detected</h2>
+            <p class="text-gray-800 text-lg mb-6">
+                It appears you are running this file directly from your local file system (`file://` protocol). For Firebase to work correctly, this code must be served from a web server.
+            </p>
+            <p class="text-gray-800 text-lg mb-6">
+                Please follow these steps to run a simple web server:
+            </p>
+            <ul class="list-disc list-inside space-y-2 text-gray-800 text-lg">
+                <li>Open your terminal or command prompt.</li>
+                <li>Navigate to the directory where this file is saved.</li>
+                <li>Run one of the following commands:
+                    <pre class="bg-gray-800 text-green-400 p-4 rounded-xl mt-2 font-mono overflow-auto">python -m http.server</pre>
+                    <pre class="bg-gray-800 text-green-400 p-4 rounded-xl mt-2 font-mono overflow-auto">npx http-server</pre>
+                </li>
+                <li>Open your browser and go to `http://localhost:8000` (or the address shown in your terminal).</li>
+            </ul>
         </div>
     </div>
 </body>

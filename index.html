@@ -9,24 +9,16 @@
     <!-- Firebase JS SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // =======================================================================
         //
         //       *** IMPORTANT: REPLACE WITH YOUR OWN FIREBASE CONFIG ***
         //
-        // This is the source of the `auth/configuration-not-found` error.
-        // The values below are placeholders. You must replace them with your
-        // actual project configuration from the Firebase console.
-        //
-        // How to find your config:
-        // 1. Go to your Firebase project console.
-        // 2. Click the gear icon next to "Project Overview".
-        // 3. Select "Project settings".
-        // 4. In the "General" tab, scroll down to the "Your apps" section.
-        // 5. Select the "Web" app (</> icon).
-        // 6. Copy the entire `firebaseConfig` object and paste it below.
+        // This is where you should paste your Firebase project's configuration.
+        // If you are still seeing errors, double-check that these values
+        // are an exact match for what's in your Firebase console.
         //
         // =======================================================================
         const firebaseConfig = {
@@ -46,11 +38,10 @@
         let userId;
         // This is a simple, static app ID for your project
         const appId = "my-dream-homes-app";
-        let isAdmin = false;
 
         // UI element references
         const loginModal = document.getElementById('login-modal');
-        const adminPanel = document.getElementById('admin-panel');
+        const addPropertyPanel = document.getElementById('add-property-panel');
         const propertyList = document.getElementById('property-list');
         const loginStatus = document.getElementById('login-status');
         const addPropertyForm = document.getElementById('add-property-form');
@@ -59,16 +50,13 @@
         const closeLoginModalBtn = document.getElementById('close-login-modal');
         const guestLoginBtn = document.getElementById('guest-login-btn');
         const googleLoginBtn = document.getElementById('google-login-btn');
-        const adminLoginBtn = document.getElementById('admin-login-btn');
-        const configWarningModal = document.getElementById('config-warning-modal');
 
         // --- FIREBASE INITIALIZATION AND AUTH STATE LISTENER ---
         window.onload = async () => {
             // Check if Firebase config is valid before proceeding
             if (!firebaseConfig.apiKey || !firebaseConfig.projectId || !firebaseConfig.authDomain) {
-                showModal('config-warning-modal');
                 console.error("Firebase configuration is missing. Please update firebaseConfig with your project details.");
-                return; // Stop execution if config is incomplete
+                return;
             }
 
             try {
@@ -77,17 +65,26 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // Now that auth is defined, we can safely listen for auth state changes
+                // This listener is the core of our authentication state management.
                 onAuthStateChanged(auth, (user) => {
                     if (user) {
                         userId = user.uid;
+                        console.log("User is authenticated:", userId);
                         updateUI(user);
                         listenForProperties();
                     } else {
                         userId = null;
-                        updateUI(null);
-                        isAdmin = false;
-                        listenForProperties(); // Listen for public properties even if logged out
+                        console.log("User is not authenticated. Attempting anonymous sign-in.");
+                        // If no user is logged in, automatically sign in anonymously for public read access.
+                        signInAnonymously(auth).then(() => {
+                            console.log("Signed in anonymously.");
+                            updateUI(null);
+                            listenForProperties();
+                        }).catch(e => {
+                            console.error("Anonymous sign-in failed:", e);
+                            showNotification("Failed to sign in as guest.", 'error');
+                            updateUI(null);
+                        });
                     }
                 });
 
@@ -102,27 +99,27 @@
 
         // --- AUTHENTICATION FUNCTIONS ---
         function updateUI(user) {
-            if (user) {
+            // This function is now the single source of truth for the UI
+            if (user && !user.isAnonymous) {
+                // A Google user is logged in
                 loginBtn.classList.add('hidden');
                 logoutBtn.classList.remove('hidden');
+                addPropertyPanel.classList.remove('hidden');
                 loginStatus.classList.remove('hidden');
-
-                if (isAdmin) {
-                    loginStatus.innerHTML = `Logged in as: <span class="font-bold text-teal-400">Admin</span>`;
-                    adminPanel.classList.remove('hidden');
-                } else if (user.isAnonymous) {
-                    loginStatus.innerHTML = `Logged in as: <span class="font-bold">Guest</span>`;
-                    adminPanel.classList.add('hidden');
-                } else {
-                    loginStatus.innerHTML = `Logged in as: <span class="font-bold">Google User</span>`;
-                    adminPanel.classList.add('hidden');
-                }
-            } else {
+                loginStatus.innerHTML = `Logged in as: <span class="font-bold">Google User</span>`;
+            } else if (user && user.isAnonymous) {
+                // An anonymous guest user is logged in
                 loginBtn.classList.remove('hidden');
                 logoutBtn.classList.add('hidden');
+                addPropertyPanel.classList.add('hidden');
+                loginStatus.classList.remove('hidden');
+                loginStatus.innerHTML = `Logged in as: <span class="font-bold">Guest</span>`;
+            } else {
+                // No user logged in at all (should not happen after init)
+                loginBtn.classList.remove('hidden');
+                logoutBtn.classList.add('hidden');
+                addPropertyPanel.classList.add('hidden');
                 loginStatus.classList.add('hidden');
-                adminPanel.classList.add('hidden');
-                isAdmin = false;
             }
         }
 
@@ -138,41 +135,9 @@
             }
         }
 
-        async function guestLogin() {
-            try {
-                // A simple guest login, doesn't require firebase auth sign-in.
-                // In a real app, you might use signInAnonymously.
-                updateUI({ isAnonymous: true, uid: "guest" });
-                hideModal('login-modal');
-                showNotification("Logged in as Guest!", 'success');
-            } catch (error) {
-                console.error("Guest sign-in failed:", error);
-                showNotification(`Guest Sign-In Failed: ${error.message}`, 'error');
-            }
-        }
-
-        async function adminLogin() {
-            const adminId = document.getElementById('admin-id').value;
-            const adminPass = document.getElementById('admin-pass').value;
-
-            // Simple client-side admin check for this example.
-            if (adminId === 'rohit' && adminPass === '7860') {
-                try {
-                    isAdmin = true;
-                    // For the UI, we can treat this as a successful login.
-                    updateUI({ displayName: 'Admin', uid: 'admin-user' });
-                    showNotification("Admin login successful!", 'success');
-                    hideModal('login-modal');
-                } catch (error) {
-                }
-            } else {
-                showNotification("Invalid Admin ID or Password.", 'error');
-            }
-        }
-
         async function handleLogout() {
             try {
-                await auth.signOut();
+                await signOut(auth);
                 showNotification("Logged out successfully.", 'success');
             } catch (error) {
                 console.error("Logout failed:", error);
@@ -184,7 +149,6 @@
         function listenForProperties() {
             if (!db) return;
 
-            // Define the collection path for public data
             const propertiesCollectionRef = collection(db, `artifacts/${appId}/public/data/properties`);
             const q = query(propertiesCollectionRef);
 
@@ -211,8 +175,10 @@
                 showNotification("Please fill in all fields.", 'error');
                 return;
             }
-            if (!db || !isAdmin) {
-                showNotification("You must be logged in as an Admin to add properties.", 'error');
+
+            // Check if a valid, non-anonymous user is logged in
+            if (!auth.currentUser || auth.currentUser.isAnonymous) {
+                showNotification("You must be logged in with a Google account to add properties.", 'error');
                 return;
             }
 
@@ -223,7 +189,7 @@
                     price: parseFloat(price),
                     imageUrl: imageUrl,
                     createdAt: serverTimestamp(),
-                    addedBy: 'admin-user' // Hardcoded for this example
+                    addedBy: auth.currentUser.uid
                 });
                 showNotification("Property added successfully!", 'success');
                 addPropertyForm.reset();
@@ -237,7 +203,7 @@
         function renderProperties(properties) {
             propertyList.innerHTML = '';
             if (properties.length === 0) {
-                propertyList.innerHTML = `<p class="text-gray-500 col-span-full text-center">No properties found. Add some as an Admin!</p>`;
+                propertyList.innerHTML = `<p class="text-gray-500 col-span-full text-center">No properties found. Log in with Google to add some!</p>`;
                 return;
             }
             properties.forEach(property => {
@@ -311,25 +277,12 @@
 
         // --- EVENT LISTENERS FOR INTERACTIVITY ---
         document.addEventListener('DOMContentLoaded', () => {
-            // Show login modal
             loginBtn.addEventListener('click', () => showModal('login-modal'));
-            
-            // Handle logout
             logoutBtn.addEventListener('click', handleLogout);
-
-            // Hide login modal
             closeLoginModalBtn.addEventListener('click', () => hideModal('login-modal'));
-            
-            // Handle login button clicks inside the modal
-            guestLoginBtn.addEventListener('click', guestLogin);
+            guestLoginBtn.addEventListener('click', () => { hideModal('login-modal'); });
             googleLoginBtn.addEventListener('click', googleLogin);
-            adminLoginBtn.addEventListener('click', adminLogin);
-
-            // Handle form submission for adding a new property
             addPropertyForm.addEventListener('submit', addProperty);
-
-            // Close config warning modal
-            document.getElementById('close-config-warning').addEventListener('click', () => hideModal('config-warning-modal'));
         });
     </script>
     <style>
@@ -397,8 +350,8 @@
 
     <!-- Main Content Section -->
     <main class="container mx-auto p-4 md:p-8 min-h-screen">
-        <!-- Admin Panel (visible only to Admin) -->
-        <section id="admin-panel" class="hidden my-12 bg-white p-8 rounded-2xl shadow-xl border border-gray-200">
+        <!-- Add Property Panel (visible only to Google users) -->
+        <section id="add-property-panel" class="hidden my-12 bg-white p-8 rounded-2xl shadow-xl border border-gray-200">
             <h2 class="text-3xl font-bold text-gray-800 mb-6">Add New Property</h2>
             <form id="add-property-form" class="space-y-6">
                 <div>
@@ -457,50 +410,6 @@
                     <span>Login with Google</span>
                 </button>
             </div>
-            
-            <div class="relative flex py-5 items-center">
-                <div class="flex-grow border-t border-gray-400"></div>
-                <span class="flex-shrink mx-4 text-gray-400">Or Admin Login</span>
-                <div class="flex-grow border-t border-gray-400"></div>
-            </div>
-
-            <!-- Admin Login Form -->
-            <form id="admin-login-form" class="space-y-4">
-                <div>
-                    <label for="admin-id" class="sr-only">Admin ID</label>
-                    <input type="text" id="admin-id" placeholder="Admin ID (rohit)" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                </div>
-                <div>
-                    <label for="admin-pass" class="sr-only">Password</label>
-                    <input type="password" id="admin-pass" placeholder="Password (7860)" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                </div>
-                <button type="button" id="admin-login-btn" class="w-full py-4 px-6 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors">
-                    Admin Login
-                </button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Firebase Config Warning Modal -->
-    <div id="config-warning-modal" class="fixed inset-0 z-[60] bg-black bg-opacity-75 flex items-center justify-center hidden">
-        <div class="bg-red-100 rounded-3xl shadow-2xl p-8 m-4 w-full max-w-lg relative border-4 border-red-500">
-            <button id="close-config-warning" class="absolute top-4 right-4 text-red-500 hover:text-red-700 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-            </button>
-            <h2 class="text-3xl font-bold text-center text-red-700 mb-4">Firebase Configuration Error</h2>
-            <p class="text-gray-800 text-lg mb-6">
-                Your Firebase configuration is incomplete. The application cannot connect to your project.
-            </p>
-            <p class="text-gray-800 text-lg mb-6">
-                **Please open the source code and replace the `firebaseConfig` object with your project's actual configuration.**
-            </p>
-            <ul class="list-disc list-inside space-y-2 text-gray-800 text-lg">
-                <li>Go to your Firebase Console > Project settings.</li>
-                <li>Under "Your apps", find your web app and copy the `firebaseConfig` object.</li>
-                <li>Paste it into the code where indicated.</li>
-            </ul>
         </div>
     </div>
 </body>
